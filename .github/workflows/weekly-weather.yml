@@ -1,0 +1,27 @@
+name: Weekly Weather DM
+
+# NOTE: this file must live at .github/workflows/weekly-weather.yml in your
+# repo for GitHub Actions to pick it up - move it there after adding to git.
+
+on:
+  schedule:
+    # 7:00 AM Eastern during EDT (UTC-4). During EST (UTC-5) this fires at
+    # 6:00 AM local instead - see "How the schedule works" in the guide.
+    - cron: "0 11 * * 1"
+  workflow_dispatch: {} # lets you trigger a manual test run from the Actions tab
+
+jobs:
+  send-weather:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - run: python weekly_weather_slack.py
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
