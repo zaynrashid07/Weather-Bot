@@ -23,13 +23,57 @@ GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 SLACK_API = "https://slack.com/api"
 
+# Open-Meteo's geocoder matches on a bare place name only - it returns zero
+# results if you pass it "City, Region" as a single string (e.g. "Mississauga,
+# ON" finds nothing, but "Mississauga" alone finds it). recipients.json uses
+# the "City, Region" format because it's the natural way to write a location,
+# so we split it ourselves: query by city name, then use the region as a hint
+# to pick the right match out of same-named cities elsewhere. Abbreviations
+# are expanded to full names since that's what Open-Meteo returns in `admin1`.
+REGION_ABBR = {
+    # US states + DC
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+    "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
+    "DC": "District of Columbia", "FL": "Florida", "GA": "Georgia", "HI": "Hawaii",
+    "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa",
+    "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine",
+    "MD": "Maryland", "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
+    "MS": "Mississippi", "MO": "Missouri", "MT": "Montana", "NE": "Nebraska",
+    "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico",
+    "NY": "New York", "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
+    "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island",
+    "SC": "South Carolina", "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas",
+    "UT": "Utah", "VT": "Vermont", "VA": "Virginia", "WA": "Washington",
+    "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+    # Canadian provinces + territories
+    "ON": "Ontario", "QC": "Quebec", "BC": "British Columbia", "AB": "Alberta",
+    "MB": "Manitoba", "SK": "Saskatchewan", "NS": "Nova Scotia", "NB": "New Brunswick",
+    "NL": "Newfoundland and Labrador", "PE": "Prince Edward Island",
+    "NT": "Northwest Territories", "YT": "Yukon", "NU": "Nunavut",
+}
+
 
 def geocode(location: str):
-    resp = requests.get(GEOCODE_URL, params={"name": location, "count": 1}, timeout=15)
+    city, _, region_hint = location.partition(",")
+    city = city.strip()
+    region_hint = region_hint.strip()
+    region_hint_full = REGION_ABBR.get(region_hint.upper(), region_hint) if region_hint else None
+
+    resp = requests.get(GEOCODE_URL, params={"name": city, "count": 10}, timeout=15)
     resp.raise_for_status()
     results = resp.json().get("results")
     if not results:
         raise ValueError(f"could not geocode '{location}'")
+
+    if region_hint_full:
+        for r in results:
+            haystack = f"{r.get('admin1', '')} {r.get('country', '')}".lower()
+            if region_hint_full.lower() in haystack:
+                return r["latitude"], r["longitude"]
+        # No result matched the region hint (e.g. an unrecognized abbreviation
+        # or a typo) - fall back to the top match rather than failing outright,
+        # since Open-Meteo ranks results by population and is usually right.
+
     top = results[0]
     return top["latitude"], top["longitude"]
 
