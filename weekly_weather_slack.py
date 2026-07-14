@@ -199,41 +199,79 @@ def get_warnings(daily: dict) -> list:
     return warnings
 
 
-def format_message(location: str, daily: dict) -> str:
-    first_day = datetime.strptime(daily["time"][0], "%Y-%m-%d").strftime("%B %-d")
-    lines = [f"*Your weather for the week of {first_day} — {location}:*", ""]
-
+def build_warning_message(daily: dict) -> str:
+    """Return the '⚠️ This week' text message, or None if nothing qualifies.
+    Sent as its own message, separate from the forecast table."""
     warnings = get_warnings(daily)
-    if warnings:
-        lines.append("⚠️ *This week:*")
-        lines.extend(f"• {w}" for w in warnings)
-        lines.append("")
+    if not warnings:
+        return None
+    lines = ["⚠️ *This week:*"] + [f"• {w}" for w in warnings]
+    return "\n".join(lines)
 
-    day_labels = []
-    day_cells = []
+
+def build_forecast_blocks(location: str, daily: dict):
+    """Build the Block Kit payload for the forecast table: a header section
+    plus a native `table` block (rows = metrics, columns = days). Slack
+    renders table blocks itself, consistently across every client - no image
+    generation or file upload needed. Returns (blocks, fallback_text)."""
+    first_day = datetime.strptime(daily["time"][0], "%Y-%m-%d").strftime("%B %-d")
+    num_days = len(daily["time"])
+
+    day_row = []
+    icon_row = []
+    temp_row = []
+    precip_row = []
+
     for i, date_str in enumerate(daily["time"]):
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-        day_labels.append(date_obj.strftime("%a %-m/%-d"))
+        day_row.append({"type": "raw_text", "text": date_obj.strftime("%a %-m/%-d")})
 
         icon = WEATHER_ICONS.get(daily["weather_code"][i], "")
+        icon_row.append({"type": "raw_text", "text": icon})
+
         high = round(daily["temperature_2m_max"][i])
         low = round(daily["temperature_2m_min"][i])
+        temp_row.append(
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [
+                            {"type": "text", "text": f"{high}°", "style": {"bold": True}},
+                            {"type": "text", "text": f"/{low}°"},
+                        ],
+                    }
+                ],
+            }
+        )
+
         precip_mm = daily["precipitation_sum"][i]
         precip_pct = daily["precipitation_probability_max"][i]
-
-        cell = f"{icon} *{high}°*/{low}°"
+        precip_text = ""
         if precip_mm and precip_mm > 0:
-            cell += f" 💧{round(precip_mm)}mm"
+            precip_text += f"💧{round(precip_mm)}mm"
         if precip_pct and precip_pct > 0:
-            cell += f" {round(precip_pct)}%"
-        day_cells.append(cell)
+            precip_text += f" {round(precip_pct)}%" if precip_text else f"{round(precip_pct)}%"
+        precip_row.append({"type": "raw_text", "text": precip_text or "–"})
 
-    header_row = "| " + " | ".join(day_labels) + " |"
-    separator_row = "|" + "|".join(["---"] * len(day_labels)) + "|"
-    data_row = "| " + " | ".join(day_cells) + " |"
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Your weather for the week of {first_day} — {location}:*",
+            },
+        },
+        {
+            "type": "table",
+            "column_settings": [{"align": "center"}] * num_days,
+            "rows": [day_row, icon_row, temp_row, precip_row],
+        },
+    ]
 
-    lines.extend([header_row, separator_row, data_row])
-    return "\n".join(lines)
+    fallback_text = f"Weekly forecast for {location}"
+    return blocks, fallback_text
 
 
 def slack_lookup_user_by_email(email: str) -> str:
@@ -262,11 +300,14 @@ def slack_open_dm(user_id: str) -> str:
     return data["channel"]["id"]
 
 
-def slack_send_message(channel_id: str, text: str) -> None:
+def slack_send_message(channel_id: str, text: str, blocks: list = None) -> None:
+    payload = {"channel": channel_id, "text": text}
+    if blocks:
+        payload["blocks"] = blocks
     resp = requests.post(
         f"{SLACK_API}/chat.postMessage",
         headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
-        json={"channel": channel_id, "text": text},
+        json=payload,
         timeout=15,
     )
     data = resp.json()
@@ -290,10 +331,16 @@ def main() -> None:
         try:
             lat, lon = geocode(location)
             daily = get_forecast(lat, lon)
-            message = format_message(location, daily)
             user_id = slack_lookup_user_by_email(email)
             channel_id = slack_open_dm(user_id)
-            slack_send_message(channel_id, message)
+
+            warning_text = build_warning_message(daily)
+            if warning_text:
+                slack_send_message(channel_id, warning_text)
+
+            blocks, fallback_text = build_forecast_blocks(location, daily)
+            slack_send_message(channel_id, fallback_text, blocks=blocks)
+
             print(f"Sent to {name} ({email})")
         except Exception as exc:  # noqa: BLE001 - keep going for other recipients
             print(f"Skipped {name} ({email}): {exc}")
