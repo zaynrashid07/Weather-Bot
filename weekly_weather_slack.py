@@ -78,11 +78,62 @@ def geocode(location: str):
     return top["latitude"], top["longitude"]
 
 
+DAILY_FIELDS = ",".join(
+    [
+        "weather_code",
+        "temperature_2m_max",
+        "temperature_2m_min",
+        "apparent_temperature_max",
+        "apparent_temperature_min",
+        "precipitation_sum",
+        "precipitation_probability_max",
+        "rain_sum",
+        "snowfall_sum",
+        "wind_gusts_10m_max",
+        "uv_index_max",
+    ]
+)
+
+# WMO weather codes (see https://open-meteo.com/en/docs, "Weather variable
+# documentation") mapped to a stand-in emoji icon, since Slack messages here
+# can only use Unicode emoji, not custom images.
+WEATHER_ICONS = {
+    0: "☀️",
+    1: "🌤️",
+    2: "⛅",
+    3: "☁️",
+    45: "🌫️", 48: "🌫️",
+    51: "🌦️", 53: "🌦️", 55: "🌦️", 56: "🌦️", 57: "🌦️",
+    61: "🌧️", 63: "🌧️", 65: "🌧️", 66: "🌧️", 67: "🌧️",
+    71: "❄️", 73: "❄️", 75: "❄️", 77: "❄️",
+    80: "🌦️", 81: "🌦️", 82: "🌦️",
+    85: "🌨️", 86: "🌨️",
+    95: "⛈️", 96: "⛈️", 99: "⛈️",
+}
+
+# Thresholds for the extreme-weather warning banner. Tune freely - these are
+# reasonable general-purpose defaults, not official alert criteria.
+EXTREME_HEAT_C = 35        # apparent_temperature_max at/above this triggers a heat warning
+EXTREME_COLD_C = -25       # apparent_temperature_min at/below this triggers a cold warning
+HEAVY_RAIN_MM = 25         # rain_sum at/above this triggers a heavy rain warning
+VERY_HEAVY_RAIN_MM = 50    # rain_sum at/above this escalates to "heavy" wording
+SIGNIFICANT_SNOW_CM = 5    # snowfall_sum at/above this triggers a snowfall warning
+HEAVY_SNOW_CM = 15         # snowfall_sum at/above this escalates to "heavy" wording
+HIGH_WIND_KMH = 60         # wind_gusts_10m_max at/above this triggers a wind warning
+SEVERE_WIND_KMH = 80       # wind_gusts_10m_max at/above this escalates to "severe" wording
+HIGH_UV = 8                # uv_index_max at/above this triggers a UV warning
+EXTREME_UV = 11            # uv_index_max at/above this escalates to "extreme" wording
+THUNDERSTORM_CODES = {95, 96, 99}
+HAIL_CODES = {96, 99}
+FREEZING_CODES = {56, 57, 66, 67}
+FOG_CODES = {45, 48}
+
+
 def get_forecast(lat: float, lon: float):
     params = {
         "latitude": lat,
         "longitude": lon,
-        "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+        "daily": DAILY_FIELDS,
         "timezone": "auto",
         "temperature_unit": "celsius",
         "forecast_days": 7,
@@ -92,21 +143,96 @@ def get_forecast(lat: float, lon: float):
     return resp.json()["daily"]
 
 
+def get_warnings(daily: dict) -> list:
+    """Scan every day in the forecast and return a list of human-readable
+    warning strings for extreme conditions, in chronological order."""
+    warnings = []
+
+    for i, date_str in enumerate(daily["time"]):
+        day_label = datetime.strptime(date_str, "%Y-%m-%d").strftime("%a")
+        code = daily["weather_code"][i]
+        apparent_max = daily["apparent_temperature_max"][i]
+        apparent_min = daily["apparent_temperature_min"][i]
+        rain = daily["rain_sum"][i]
+        snow = daily["snowfall_sum"][i]
+        gusts = daily["wind_gusts_10m_max"][i]
+        uv = daily["uv_index_max"][i]
+
+        if code in THUNDERSTORM_CODES:
+            if code in HAIL_CODES:
+                warnings.append(f"⛈️ Thunderstorms with hail possible ({day_label})")
+            else:
+                warnings.append(f"⛈️ Thunderstorms possible ({day_label})")
+
+        if code in FREEZING_CODES:
+            warnings.append(f"🧊 Freezing rain possible — icy surfaces ({day_label})")
+
+        if code in FOG_CODES:
+            warnings.append(f"🌫️ Reduced visibility from fog ({day_label})")
+
+        if apparent_max >= EXTREME_HEAT_C:
+            warnings.append(f"🌡️ Extreme heat — feels like {round(apparent_max)}°C ({day_label})")
+
+        if apparent_min <= EXTREME_COLD_C:
+            warnings.append(f"🥶 Extreme cold — feels like {round(apparent_min)}°C ({day_label})")
+
+        if rain >= VERY_HEAVY_RAIN_MM:
+            warnings.append(f"🌧️ Heavy rain expected — {round(rain)}mm ({day_label})")
+        elif rain >= HEAVY_RAIN_MM:
+            warnings.append(f"🌧️ Significant rain expected — {round(rain)}mm ({day_label})")
+
+        if snow >= HEAVY_SNOW_CM:
+            warnings.append(f"❄️ Heavy snowfall expected — {round(snow)}cm ({day_label})")
+        elif snow >= SIGNIFICANT_SNOW_CM:
+            warnings.append(f"❄️ Significant snowfall expected — {round(snow)}cm ({day_label})")
+
+        if gusts >= SEVERE_WIND_KMH:
+            warnings.append(f"💨 Severe winds — gusts to {round(gusts)} km/h ({day_label})")
+        elif gusts >= HIGH_WIND_KMH:
+            warnings.append(f"💨 High winds — gusts to {round(gusts)} km/h ({day_label})")
+
+        if uv >= EXTREME_UV:
+            warnings.append(f"☀️ Extreme UV — index {round(uv)} ({day_label})")
+        elif uv >= HIGH_UV:
+            warnings.append(f"☀️ Very high UV — index {round(uv)} ({day_label})")
+
+    return warnings
+
+
 def format_message(location: str, daily: dict) -> str:
     first_day = datetime.strptime(daily["time"][0], "%Y-%m-%d").strftime("%B %-d")
     lines = [f"*Your weather for the week of {first_day} — {location}:*", ""]
 
+    warnings = get_warnings(daily)
+    if warnings:
+        lines.append("⚠️ *This week:*")
+        lines.extend(f"• {w}" for w in warnings)
+        lines.append("")
+
+    day_labels = []
+    day_cells = []
     for i, date_str in enumerate(daily["time"]):
-        day_label = datetime.strptime(date_str, "%Y-%m-%d").strftime("%a %b %-d")
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        day_labels.append(date_obj.strftime("%a %-m/%-d"))
+
+        icon = WEATHER_ICONS.get(daily["weather_code"][i], "")
         high = round(daily["temperature_2m_max"][i])
         low = round(daily["temperature_2m_min"][i])
-        precip = daily["precipitation_probability_max"][i]
+        precip_mm = daily["precipitation_sum"][i]
+        precip_pct = daily["precipitation_probability_max"][i]
 
-        line = f"*{day_label}:* High {high}°C / Low {low}°C"
-        if precip and precip > 0:
-            line += f" — {precip}% chance of precipitation"
-        lines.append(line)
+        cell = f"{icon} *{high}°*/{low}°"
+        if precip_mm and precip_mm > 0:
+            cell += f" 💧{round(precip_mm)}mm"
+        if precip_pct and precip_pct > 0:
+            cell += f" {round(precip_pct)}%"
+        day_cells.append(cell)
 
+    header_row = "| " + " | ".join(day_labels) + " |"
+    separator_row = "|" + "|".join(["---"] * len(day_labels)) + "|"
+    data_row = "| " + " | ".join(day_cells) + " |"
+
+    lines.extend([header_row, separator_row, data_row])
     return "\n".join(lines)
 
 
