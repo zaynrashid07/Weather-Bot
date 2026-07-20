@@ -103,12 +103,15 @@ WEATHER_ICONS = {
     2: "⛅",
     3: "☁️",
     45: "🌫️", 48: "🌫️",
-    51: "🌦️", 53: "🌦️", 55: "🌦️", 56: "🌦️", 57: "🌦️",
-    61: "🌧️", 63: "🌧️", 65: "🌧️", 66: "🌧️", 67: "🌧️",
+    51: "☔", 53: "☔", 55: "☔",           # drizzle (steady, light)
+    56: "🧊☔", 57: "🧊☔",                 # freezing drizzle
+    61: "🌧️", 63: "🌧️", 65: "🌧️",        # rain (steady)
+    66: "🧊🌧️", 67: "🧊🌧️",               # freezing rain
     71: "❄️", 73: "❄️", 75: "❄️", 77: "❄️",
-    80: "🌦️", 81: "🌦️", 82: "🌦️",
+    80: "🌦️", 81: "🌦️", 82: "🌦️",        # showers (intermittent, sun breaks)
     85: "🌨️", 86: "🌨️",
-    95: "⛈️", 96: "⛈️", 99: "⛈️",
+    95: "⛈️",                             # thunderstorm
+    96: "⛈️🧊", 99: "⛈️🧊",                # thunderstorm with hail
 }
 
 # Thresholds for the extreme-weather warning banner. Tune freely - these are
