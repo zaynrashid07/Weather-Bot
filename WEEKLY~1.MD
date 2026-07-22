@@ -1,6 +1,6 @@
 # Weekly Weather Bot — Setup Guide (Expanded)
 
-This sets up a real Slack bot — its own identity, separate from your personal account — that posts a 7-day weather forecast for a single site (Mississauga, ON, by default) to a Slack channel every Monday morning. Two independent pieces make this work: a Slack app with a bot token, and a free scheduled service (GitHub Actions) that runs the job and calls Slack's API.
+This sets up a real Slack bot — its own identity, separate from your personal account — that posts a 7-day weather forecast for a single site (Mississauga, ON, by default) to a Slack channel every day at 6:30am. Two independent pieces make this work: a Slack app with a bot token, and a free scheduled service (GitHub Actions) that runs the job and calls Slack's API.
 
 **What you'll need before starting:**
 
@@ -103,7 +103,7 @@ Location can be any city, town, or place name recognizable by a geocoder — it 
 ## Part 4 — Test it before trusting the schedule
 
 1. In the repo, click the **Actions** tab.
-2. In the left sidebar, click **Weekly Weather Channel Post** (the workflow name).
+2. In the left sidebar, click **Daily Weather Channel Post** (the workflow name).
 3. Click **Run workflow** (a button/dropdown on the right) → confirm **Run workflow** again. This manually triggers a run right now, without waiting for Monday.
 4. Refresh after a few seconds — a new run will appear. Click into it, then click the **send-weather** job to see live logs.
 5. Read the output carefully:
@@ -130,25 +130,25 @@ The workflow trigger is:
 
 ```yaml
 schedule:
-  - cron: "0 11 * * 1"
+  - cron: "30 10 * * *"
 ```
 
-Cron fields are `minute hour day-of-month month day-of-week`, always in UTC — GitHub Actions has no timezone setting. `0 11 * * 1` means "at minute 0 of hour 11 UTC, every Monday." 11:00 UTC is 7:00 AM Eastern **during Eastern Daylight Time** (UTC−4, roughly mid-March to early November).
+Cron fields are `minute hour day-of-month month day-of-week`, always in UTC — GitHub Actions has no timezone setting. `30 10 * * *` means "at minute 30 of hour 10 UTC, every day" (the last `*` is day-of-week — a wildcard, so it's not restricted to any particular day). 10:30 UTC is 6:30 AM Eastern **during Eastern Daylight Time** (UTC−4, roughly mid-March to early November).
 
-The catch: cron doesn't know about daylight saving. During Eastern Standard Time (UTC−5, roughly early November to mid-March), that same `11 * * 1` fires at **6:00 AM** local instead of 7:00. If exact timing matters to you year-round, swap the cron line twice a year:
+The catch: cron doesn't know about daylight saving. During Eastern Standard Time (UTC−5, roughly early November to mid-March), that same `30 10 * * *` fires at **5:30 AM** local instead of 6:30. If exact timing matters to you year-round, swap the cron line twice a year:
 
-- EDT (spring/summer): `0 11 * * 1`
-- EST (fall/winter): `0 12 * * 1`
+- EDT (spring/summer): `30 10 * * *`
+- EST (fall/winter): `30 11 * * *`
 
 If being off by an hour twice a year doesn't matter, you can leave it as-is indefinitely.
 
-One more real-world note: GitHub's scheduler can run a few minutes late during periods of high platform load — this is documented, expected behavior for free scheduled workflows, not a sign anything is broken.
+One more real-world note: GitHub's scheduler can run a few minutes late during periods of high platform load — this is documented, expected behavior for free scheduled workflows, not a sign anything is broken. Also worth knowing: GitHub automatically disables scheduled workflows after 60 days of zero repository activity — if the daily post ever silently stops, check the **Actions** tab for a "workflow disabled" banner before assuming something else is wrong.
 
 ---
 
 ## Part 6 — Message format & extreme weather warnings
 
-Each run posts up to two messages to the channel:
+Each daily run posts up to two messages to the channel:
 
 1. **A warnings message** (only sent if something qualifies) — plain text, e.g.:
    ```
@@ -217,7 +217,7 @@ This is the safer alternative to temporarily lowering real thresholds to force a
 - **Changing wording, layout, warning thresholds, or icons:** edit `weekly_weather_slack.py` — `build_forecast_blocks` controls the table block, `build_warning_message`/`get_warnings` and the threshold constants control the warnings message, and `WEATHER_ICONS` controls the emoji per WMO code.
 - **Rotating the bot token:** in the Slack app's OAuth & Permissions page, reinstalling the app regenerates the token. Update the `SLACK_BOT_TOKEN` secret in GitHub afterward — the old token stops working immediately once reinstalled.
 - **Cost:** this is free end to end — GitHub Actions includes free minutes for scheduled workflows (a job this small uses well under a minute per run), and Open-Meteo's API requires no key, account, or paid plan.
-- **This system runs weekly, not continuously:** the schedule recalculates warnings fresh each Monday from that week's forecast. It's not a standing monitor — if severe weather develops mid-week, it won't be caught until the next scheduled run (or a manual trigger). Keep that in mind for anything safety-critical.
+- **This system runs on a schedule, not continuously:** each run recalculates warnings fresh from whatever Open-Meteo returns at that moment. It's not a standing monitor — even at a daily cadence, if conditions shift significantly between runs (e.g. a storm develops mid-afternoon), it won't be caught until the next scheduled run (or a manual trigger). Keep that in mind for anything safety-critical.
 
 ---
 
@@ -228,4 +228,4 @@ This is the safer alternative to temporarily lowering real thresholds to force a
 3. Private (or public) GitHub repo created with the script, requirements, and workflow file(s) at their exact paths.
 4. `SLACK_BOT_TOKEN` secret added, `SLACK_CHANNEL_ID` (and optionally `SITE_LOCATION`) variables added under repo Settings → Secrets and variables → Actions.
 5. Manual **Run workflow** test completed, log shows `Posted ... forecast to channel ...`, message confirmed in the channel from the bot's identity.
-6. Schedule left as-is (or adjusted for DST per Part 5) — the job now runs automatically every Monday.
+6. Schedule left as-is (or adjusted for DST per Part 5) — the job now runs automatically every day.

@@ -31,9 +31,9 @@ LOCATION = os.environ.get("SITE_LOCATION", "Mississauga, ON")
 # variable in GitHub Actions (Settings -> Secrets and variables -> Actions ->
 # Variables tab) - switching channels is then just editing that value in
 # GitHub's UI, no code change or redeploy needed. The hardcoded fallback
-# below is the private test channel, used only if that variable isn't set
-# (e.g. running locally without it).
-CHANNEL_ID = os.environ.get("SLACK_CHANNEL_ID", "C0A70L7HTFF")  # #realestatechannel
+# below is used only if that variable isn't set (e.g. running locally
+# without it).
+CHANNEL_ID = os.environ.get("SLACK_CHANNEL_ID", "C0A70L7HTFF")
 
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
