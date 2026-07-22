@@ -33,7 +33,7 @@ LOCATION = os.environ.get("SITE_LOCATION", "Mississauga, ON")
 # GitHub's UI, no code change or redeploy needed. The hardcoded fallback
 # below is the private test channel, used only if that variable isn't set
 # (e.g. running locally without it).
-CHANNEL_ID = os.environ.get("SLACK_CHANNEL_ID", "C0BH4FEHZDW")  # #privatetestchannel
+CHANNEL_ID = os.environ.get("SLACK_CHANNEL_ID", "C0A70L7HTFF")  # #realestatechannel
 
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
