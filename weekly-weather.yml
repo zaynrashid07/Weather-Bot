@@ -1,4 +1,4 @@
-name: Weekly Weather DM
+name: Weekly Weather Channel Post
 
 # NOTE: this file must live at .github/workflows/weekly-weather.yml in your
 # repo for GitHub Actions to pick it up - move it there after adding to git.
@@ -25,3 +25,4 @@ jobs:
       - run: python weekly_weather_slack.py
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}

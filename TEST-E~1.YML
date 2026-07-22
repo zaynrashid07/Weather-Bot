@@ -1,0 +1,28 @@
+name: Test Extreme Weather Message
+
+# NOTE: this file must live at .github/workflows/test-extreme-weather.yml
+#
+# Manual-only trigger - sends a fabricated extreme-weather week for LOCATION
+# using the real message-building code, so you can preview warnings/protocols/
+# table rendering in Slack on demand, without waiting for real extreme
+# weather or touching any thresholds.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  send-test-message:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -r requirements.txt
+
+      - run: python test_extreme_weather.py
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}

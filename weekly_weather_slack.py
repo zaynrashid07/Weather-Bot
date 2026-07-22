@@ -1,15 +1,19 @@
 """
-Weekly Weather Slack DM
+Weekly Weather Slack Channel Post
 
-Reads recipients.json (name, email, location), fetches a 7-day forecast for
-each location from Open-Meteo (free, no API key), looks up the matching
-Slack user by email, and DMs them a formatted forecast using the bot token
-in the SLACK_BOT_TOKEN environment variable.
+Fetches a 7-day forecast for a single fixed site (LOCATION, below) from
+Open-Meteo (free, no API key) and posts a formatted forecast table, plus any
+extreme-weather warnings and matching facility protocol checklists, to a
+single Slack channel.
+
+Requires SLACK_BOT_TOKEN in the environment. The bot must already be a
+member of the target channel - this is mandatory for private channels (no
+scope can bypass that) and required for public channels too unless the bot
+also has the chat:write.public scope.
 
 Run with:  python weekly_weather_slack.py
 """
 
-import json
 import os
 import sys
 from datetime import datetime
@@ -17,7 +21,19 @@ from datetime import datetime
 import requests
 
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN")
-RECIPIENTS_FILE = os.path.join(os.path.dirname(__file__), "recipients.json")
+
+# The site this report covers. Overridden by the SITE_LOCATION repository
+# variable in GitHub Actions if you ever need to point this at a different
+# location - same pattern as CHANNEL_ID below.
+LOCATION = os.environ.get("SITE_LOCATION", "Mississauga, ON")
+
+# Where reports get posted. Overridden by the SLACK_CHANNEL_ID repository
+# variable in GitHub Actions (Settings -> Secrets and variables -> Actions ->
+# Variables tab) - switching channels is then just editing that value in
+# GitHub's UI, no code change or redeploy needed. The hardcoded fallback
+# below is the private test channel, used only if that variable isn't set
+# (e.g. running locally without it).
+CHANNEL_ID = os.environ.get("SLACK_CHANNEL_ID", "C0BH4FEHZDW")  # #privatetestchannel
 
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
@@ -25,11 +41,11 @@ SLACK_API = "https://slack.com/api"
 
 # Open-Meteo's geocoder matches on a bare place name only - it returns zero
 # results if you pass it "City, Region" as a single string (e.g. "Mississauga,
-# ON" finds nothing, but "Mississauga" alone finds it). recipients.json uses
-# the "City, Region" format because it's the natural way to write a location,
-# so we split it ourselves: query by city name, then use the region as a hint
-# to pick the right match out of same-named cities elsewhere. Abbreviations
-# are expanded to full names since that's what Open-Meteo returns in `admin1`.
+# ON" finds nothing, but "Mississauga" alone finds it). LOCATION uses the
+# "City, Region" format because it's the natural way to write a location, so
+# we split it ourselves: query by city name, then use the region as a hint to
+# pick the right match out of same-named cities elsewhere. Abbreviations are
+# expanded to full names since that's what Open-Meteo returns in `admin1`.
 REGION_ABBR = {
     # US states + DC
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
@@ -420,7 +436,7 @@ def build_forecast_blocks(location: str, daily: dict):
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*Your weather for the week of {first_day} — {location}:*",
+                "text": f"*Weather for the week of {first_day} — {location}:*",
             },
         },
         {
@@ -432,32 +448,6 @@ def build_forecast_blocks(location: str, daily: dict):
 
     fallback_text = f"Weekly forecast for {location}"
     return blocks, fallback_text
-
-
-def slack_lookup_user_by_email(email: str) -> str:
-    resp = requests.get(
-        f"{SLACK_API}/users.lookupByEmail",
-        headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
-        params={"email": email},
-        timeout=15,
-    )
-    data = resp.json()
-    if not data.get("ok"):
-        raise ValueError(f"Slack user lookup failed for {email}: {data.get('error')}")
-    return data["user"]["id"]
-
-
-def slack_open_dm(user_id: str) -> str:
-    resp = requests.post(
-        f"{SLACK_API}/conversations.open",
-        headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
-        json={"users": user_id},
-        timeout=15,
-    )
-    data = resp.json()
-    if not data.get("ok"):
-        raise ValueError(f"could not open DM with {user_id}: {data.get('error')}")
-    return data["channel"]["id"]
 
 
 def slack_send_message(channel_id: str, text: str, blocks: list = None) -> None:
@@ -480,33 +470,21 @@ def main() -> None:
         print("ERROR: SLACK_BOT_TOKEN environment variable is not set.", file=sys.stderr)
         sys.exit(1)
 
-    with open(RECIPIENTS_FILE, encoding="utf-8") as f:
-        recipients = json.load(f)
+    try:
+        lat, lon = geocode(LOCATION)
+        daily = get_forecast(lat, lon)
 
-    exit_code = 0
-    for person in recipients:
-        name = person.get("name", "unknown")
-        email = person.get("email")
-        location = person.get("location")
-        try:
-            lat, lon = geocode(location)
-            daily = get_forecast(lat, lon)
-            user_id = slack_lookup_user_by_email(email)
-            channel_id = slack_open_dm(user_id)
+        warning_text = build_warning_message(daily)
+        if warning_text:
+            slack_send_message(CHANNEL_ID, warning_text)
 
-            warning_text = build_warning_message(daily)
-            if warning_text:
-                slack_send_message(channel_id, warning_text)
+        blocks, fallback_text = build_forecast_blocks(LOCATION, daily)
+        slack_send_message(CHANNEL_ID, fallback_text, blocks=blocks)
 
-            blocks, fallback_text = build_forecast_blocks(location, daily)
-            slack_send_message(channel_id, fallback_text, blocks=blocks)
-
-            print(f"Sent to {name} ({email})")
-        except Exception as exc:  # noqa: BLE001 - keep going for other recipients
-            print(f"Skipped {name} ({email}): {exc}")
-            exit_code = 1
-
-    sys.exit(exit_code)
+        print(f"Posted {LOCATION} forecast to channel {CHANNEL_ID}")
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

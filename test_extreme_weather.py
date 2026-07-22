@@ -1,23 +1,21 @@
 """
-Test script - sends a FABRICATED extreme-weather week to the first person in
-recipients.json, using the exact same message-building code as the real job
-(imported straight from weekly_weather_slack.py), so you can see precisely
-how the warnings, facility protocol checklists, and forecast table render in
-Slack. No real forecast is fetched, and no thresholds are touched - this is
-just fake `daily` data run through the real formatting logic.
+Test script - sends a FABRICATED extreme-weather week for LOCATION, using the
+exact same message-building code as the real job (imported straight from
+weekly_weather_slack.py), so you can see precisely how the warnings, facility
+protocol checklists, and forecast table render in Slack. No real forecast is
+fetched, and no thresholds are touched - this is just fake `daily` data run
+through the real formatting logic.
 
 Run with:  python test_extreme_weather.py
-(Needs the same SLACK_BOT_TOKEN environment variable as the real job.)
+(Needs the same SLACK_BOT_TOKEN and SLACK_CHANNEL_ID environment variables as
+the real job - posts to CHANNEL_ID, same as main().)
 """
 
-import json
-
 from weekly_weather_slack import (
-    RECIPIENTS_FILE,
+    CHANNEL_ID,
+    LOCATION,
     build_forecast_blocks,
     build_warning_message,
-    slack_lookup_user_by_email,
-    slack_open_dm,
     slack_send_message,
 )
 
@@ -46,25 +44,16 @@ MOCK_DAILY = {
 
 
 def main() -> None:
-    with open(RECIPIENTS_FILE, encoding="utf-8") as f:
-        recipients = json.load(f)
-    if not recipients:
-        raise SystemExit("recipients.json is empty - add someone to test with first.")
-
-    person = recipients[0]
-    print(f"Sending test message to {person['name']} ({person['email']})")
-
-    user_id = slack_lookup_user_by_email(person["email"])
-    channel_id = slack_open_dm(user_id)
+    print(f"Posting test message for {LOCATION} to channel {CHANNEL_ID}")
 
     warning_text = build_warning_message(MOCK_DAILY)
     if warning_text:
-        slack_send_message(channel_id, f"🧪 *[TEST - fabricated data, not a real forecast]*\n\n{warning_text}")
+        slack_send_message(CHANNEL_ID, f"🧪 *[TEST - fabricated data, not a real forecast]*\n\n{warning_text}")
 
-    blocks, fallback_text = build_forecast_blocks(f"{person['location']} (TEST DATA)", MOCK_DAILY)
-    slack_send_message(channel_id, fallback_text, blocks=blocks)
+    blocks, fallback_text = build_forecast_blocks(f"{LOCATION} (TEST DATA)", MOCK_DAILY)
+    slack_send_message(CHANNEL_ID, fallback_text, blocks=blocks)
 
-    print("Done - check Slack.")
+    print("Done - check the channel.")
 
 
 if __name__ == "__main__":
