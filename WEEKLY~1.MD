@@ -205,6 +205,16 @@ Note: light/moderate/heavy variants of the same condition (e.g. codes 61, 63, 65
 
 ---
 
+## Part 6b — Testing extreme weather without waiting for it
+
+`test_extreme_weather.py` sends a **fabricated** week of extreme conditions (heat, cold, wind, rain, snow, freezing rain, thunderstorm with hail, plus UV) through the exact same `build_warning_message`/`build_forecast_blocks` code the real job uses — no real forecast is fetched, and no thresholds are touched. It's imported straight from `weekly_weather_slack.py`, so what you see is guaranteed to match production formatting.
+
+To use it: add the file to your repo alongside the others, and add `test-extreme-weather.yml` at `.github/workflows/test-extreme-weather.yml` (same rule as the main workflow — GitHub only reads that exact folder). It has no schedule, only a manual trigger — go to **Actions → Test Extreme Weather Message → Run workflow**. It sends to whoever is first in `recipients.json`, prefixed with "[TEST - fabricated data, not a real forecast]" so it's never mistaken for a real alert.
+
+This is the safer alternative to temporarily lowering real thresholds to force a trigger — that approach works too, but it's easy to forget to change a threshold back afterward, and until you do, the live job could send a false alarm off real (non-extreme) weather.
+
+---
+
 ## Part 7 — Ongoing maintenance
 
 - **Adding or removing people:** edit `recipients.json` and commit. Nothing else needs to change.
