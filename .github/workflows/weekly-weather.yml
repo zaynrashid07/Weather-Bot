@@ -1,13 +1,16 @@
-name: Weekly Weather DM
+name: Daily Weather Channel Post
 
 # NOTE: this file must live at .github/workflows/weekly-weather.yml in your
 # repo for GitHub Actions to pick it up - move it there after adding to git.
+# (Filename/job name still say "weekly" for historical reasons - only the
+# schedule below actually changed to run every day.)
 
 on:
   schedule:
-    # 7:00 AM Eastern during EDT (UTC-4). During EST (UTC-5) this fires at
-    # 6:00 AM local instead - see "How the schedule works" in the guide.
-    - cron: "0 11 * * 1"
+    # 6:30 AM Eastern every day, during EDT (UTC-4). During EST (UTC-5) this
+    # fires at 5:30 AM local instead - see "How the schedule works" in the
+    # guide.
+    - cron: "30 10 * * *"
   workflow_dispatch: {} # lets you trigger a manual test run from the Actions tab
 
 jobs:
@@ -25,3 +28,4 @@ jobs:
       - run: python weekly_weather_slack.py
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
