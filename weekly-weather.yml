@@ -7,10 +7,11 @@ name: Daily Weather Channel Post
 
 on:
   schedule:
-    # 6:30 AM Eastern every day, during EDT (UTC-4). During EST (UTC-5) this
-    # fires at 5:30 AM local instead - see "How the schedule works" in the
-    # guide.
-    - cron: "30 10 * * *"
+    # 6:30 AM in the America/Toronto timezone, every day. GitHub Actions
+    # handles the EDT/EST switch automatically with an explicit timezone
+    # set - no manual UTC math or twice-a-year cron edits needed.
+    - cron: "30 6 * * *"
+      timezone: "America/Toronto"
   workflow_dispatch: {} # lets you trigger a manual test run from the Actions tab
 
 jobs:
