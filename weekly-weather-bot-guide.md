@@ -1,21 +1,24 @@
+[WEEKLY~1.MD](https://github.com/user-attachments/files/30346790/WEEKLY.1.MD)
 # Weekly Weather Bot — Setup Guide (Expanded)
 
-This sets up a real Slack bot — its own identity, separate from your personal account — that DMs a list of people a 7-day weather forecast every Monday morning. Two independent pieces make this work: a Slack app with a bot token, and a free scheduled service (GitHub Actions) that runs the job and calls Slack's API.
+This sets up a real Slack bot — its own identity, separate from your personal account — that posts a 7-day weather forecast for a single site (Mississauga, ON, by default) to a Slack channel every day at 6:30am. Two independent pieces make this work: a Slack app with a bot token, and a free scheduled service (GitHub Actions) that runs the job and calls Slack's API.
 
 **What you'll need before starting:**
 
 - Permission to install apps into your Slack workspace. Some workspaces restrict this to admins — if "Install to Workspace" is greyed out or asks for approval later, you'll need to route the request to whoever manages your Slack.
 - A GitHub account (free — sign up at github.com if you don't have one).
+- The bot already invited into the target Slack channel (or an admin who can invite it) — see Part 3.
 - About 15–20 minutes.
 
 **Files referenced throughout this guide** (provided alongside it):
 
 | File | Purpose |
 |---|---|
-| `weekly_weather_slack.py` | The script that fetches weather and sends the DMs |
-| `recipients.json` | The editable list of who gets a DM and where they're located |
+| `weekly_weather_slack.py` | The script that fetches the forecast and posts it to the channel |
+| `test_extreme_weather.py` | Optional: sends a fabricated extreme-weather week for on-demand testing |
 | `requirements.txt` | The one Python dependency (`requests`) |
 | `weekly-weather.yml` | The GitHub Actions schedule definition |
+| `test-extreme-weather.yml` | Optional: manual-trigger workflow for the test script |
 
 ---
 
@@ -26,22 +29,20 @@ This sets up a real Slack bot — its own identity, separate from your personal 
 1. Go to **https://api.slack.com/apps** in your browser and sign in with your Slack account if prompted.
 2. Click **Create New App** (top right).
 3. Choose **From scratch**.
-4. Enter an **App Name** — something like "Weather Bot" is fine, this is just the display name recipients will see.
+4. Enter an **App Name** — something like "Weather Bot" is fine, this is just the display name that will post in the channel.
 5. Under **Pick a workspace to develop your app in**, select your workspace, then click **Create App**.
 6. You'll land on the app's **Basic Information** page. In the left sidebar, click **OAuth & Permissions**.
-7. Scroll down to the **Scopes** section, then **Bot Token Scopes**. Click **Add an OAuth Scope** and add each of these three, one at a time:
-   - `chat:write` — lets the bot send messages.
-   - `im:write` — lets the bot open a direct-message conversation with a user (required before it can DM someone it hasn't talked to before).
-   - `users:read.email` — lets the bot look up a person's Slack user ID from their email address, which is how the script matches `recipients.json` entries to real Slack accounts.
+7. Scroll down to the **Scopes** section, then **Bot Token Scopes**. Click **Add an OAuth Scope** and add:
+   - `chat:write` — lets the bot post messages into channels it's a member of.
 8. Scroll back up to the top of the **OAuth & Permissions** page and click **Install to Workspace**.
-9. Slack will show a permissions review screen listing exactly what the bot can do (send messages, view basic user email addresses). Click **Allow**.
+9. Slack will show a permissions review screen listing exactly what the bot can do (post messages). Click **Allow**.
    - If you see a message that approval is required, someone with Slack admin rights will need to approve the app before you can continue — this is a workspace setting, not something you can bypass.
 10. After installing, you'll land back on **OAuth & Permissions**, now showing a **Bot User OAuth Token** starting with `xoxb-`. Click to copy it.
-11. Treat this token like a password: anyone holding it can send messages as the bot and read basic profile info. Don't paste it into chat messages, commit it to a public repo, or share it over email. It only needs to go into one place — the GitHub secret in Part 2.
+11. Treat this token like a password: anyone holding it can post messages as the bot. Don't paste it into chat messages, commit it to a public repo, or share it over email. It only needs to go into one place — the GitHub secret in Part 2.
 
 ### Option B: Faster setup using an app manifest
 
-Slack lets you skip steps 6–7 by creating the app from a manifest that pre-fills the scopes. When creating the app, choose **From an app manifest** instead of **From scratch**, select your workspace, and paste this (YAML format):
+Slack lets you skip steps 6–7 by creating the app from a manifest that pre-fills the scope. When creating the app, choose **From an app manifest** instead of **From scratch**, select your workspace, and paste this (YAML format):
 
 ```yaml
 display_information:
@@ -54,8 +55,6 @@ oauth_config:
   scopes:
     bot:
       - chat:write
-      - im:write
-      - users:read.email
 settings:
   org_deploy_enabled: false
   socket_mode_enabled: false
@@ -69,61 +68,59 @@ Review the summary Slack shows you, click **Create**, then continue from step 8 
 ## Part 2 — Set up the GitHub repository
 
 1. Sign in to GitHub and click **New** (or the **+** in the top right → **New repository**).
-2. Give it a name (e.g. `weekly-weather-bot`). **Set it to Private** — this repo's config will eventually list real people's names and email addresses, so it shouldn't be public.
+2. Give it a name (e.g. `weekly-weather-bot`). Private is a reasonable default, though nothing in this repo is sensitive on its own now that it no longer lists people's names or emails.
 3. Click **Create repository**.
-4. Add the four files from this guide to the repo. The simplest way if you're not using git locally: on the repo's main page, click **Add file → Upload files**, then drag in `weekly_weather_slack.py`, `recipients.json`, and `requirements.txt`. Commit those.
-5. `weekly-weather.yml` needs to live at the exact path `.github/workflows/weekly-weather.yml` — GitHub Actions only discovers workflow files in that specific folder. To create that path via the web UI: click **Add file → Create new file**, then in the filename box type `.github/workflows/weekly-weather.yml` (typing the slashes creates the folders automatically), paste in the contents of the provided `weekly-weather.yml`, and commit.
+4. Add the files from this guide to the repo. The simplest way if you're not using git locally: on the repo's main page, click **Add file → Upload files**, then drag in `weekly_weather_slack.py`, `requirements.txt`, and (optionally) `test_extreme_weather.py`. Commit those.
+5. `weekly-weather.yml` needs to live at the exact path `.github/workflows/weekly-weather.yml` — GitHub Actions only discovers workflow files in that specific folder. To create that path via the web UI: click **Add file → Create new file**, then in the filename box type `.github/workflows/weekly-weather.yml` (typing the slashes creates the folders automatically), paste in the contents of the provided `weekly-weather.yml`, and commit. Do the same for `test-extreme-weather.yml` if you want the optional test workflow.
 6. Now add the secret: go to the repo's **Settings** tab → in the left sidebar, **Secrets and variables → Actions** → **New repository secret**.
    - **Name:** `SLACK_BOT_TOKEN` (must match exactly — this is what the workflow file references).
    - **Value:** paste the `xoxb-...` token from Part 1.
    - Click **Add secret**.
 7. Double-check: GitHub secrets are write-only after creation — you (and no one else) can view the value again once saved, only overwrite it. That's expected and is the point of storing it as a secret rather than in a file.
 
-At this point the automation infrastructure is fully wired up; it just needs recipients and a first test run.
+At this point the automation infrastructure is fully wired up; it just needs a channel and a first test run.
 
 ---
 
-## Part 3 — Edit the recipient list
+## Part 3 — Point it at the right channel and location
 
-Open `recipients.json` in the repo (or edit it locally and push). The format is a JSON array — one object per person:
+**Channel:** the script posts to a fixed channel ID, read from the `SLACK_CHANNEL_ID` repository variable (falling back to a hardcoded test channel if that variable isn't set). To set or change it:
 
-```json
-[
-  { "name": "Zayn Rashid", "email": "zayn.rashid@clutch.ca", "location": "Mississauga, ON" },
-  { "name": "Priya Shah", "email": "priya@clutch.ca", "location": "Toronto, ON" },
-  { "name": "Marcus Webb", "email": "marcus@clutch.ca", "location": "Austin, TX" }
-]
-```
+1. In Slack, invite the bot into the target channel: open the channel → click the channel name → **Integrations** (or **Members**) → **Add apps** → select your bot. The bot must be a member of the channel before it can post there — there's no scope that bypasses this for private channels, and public channels need it too unless you separately add `chat:write.public`.
+2. Get the channel ID: open the channel in Slack, click the channel name at the top, and the ID (starts with `C`) is shown near the bottom of the "About" tab. You can also right-click the channel → **Copy link** — the ID is the last segment of the URL.
+3. In GitHub: repo **Settings → Secrets and variables → Actions → Variables tab → New repository variable**.
+   - **Name:** `SLACK_CHANNEL_ID`
+   - **Value:** the channel ID from step 2 (e.g. `C0BH4FEHZDW`)
+4. To switch channels later (e.g. from a test channel to the real one), just edit this variable's value — no code change, no redeploy.
 
-Notes on getting this right:
+**Location:** the site the forecast covers defaults to `Mississauga, ON`, set as a constant in `weekly_weather_slack.py` (`LOCATION = os.environ.get("SITE_LOCATION", "Mississauga, ON")`). To point it at a different site, either:
+- Add a `SITE_LOCATION` repository variable the same way as `SLACK_CHANNEL_ID` above (and add `SITE_LOCATION: ${{ vars.SITE_LOCATION }}` to the workflow's `env:` block), or
+- Just edit the default string directly in the script and commit.
 
-- The **email** must match the address on that person's actual Slack account (the one their workspace profile shows), not just any email you have for them — that's the only way the script can find their Slack user ID.
-- **location** can be any city, town, or place name recognizable by a geocoder — it works globally, not just Canada or North America. Being specific (e.g. "Austin, TX" rather than just "Austin") avoids ambiguity with same-named places elsewhere.
-- Watch JSON syntax: every entry except the last needs a trailing comma, all keys and string values need double quotes (not single quotes), and the whole thing needs to stay wrapped in `[ ]`. A misplaced comma or missing quote will make the whole file fail to parse and the job will error out for everyone, not just one person.
-- Commit the change. No code edits or redeploy needed — the script reads this file fresh on every run.
+Location can be any city, town, or place name recognizable by a geocoder — it works globally. Being specific (e.g. "Austin, TX" rather than just "Austin") avoids ambiguity with same-named places elsewhere.
 
 ---
 
 ## Part 4 — Test it before trusting the schedule
 
 1. In the repo, click the **Actions** tab.
-2. In the left sidebar, click **Weekly Weather DM** (the workflow name).
+2. In the left sidebar, click **Daily Weather Channel Post** (the workflow name).
 3. Click **Run workflow** (a button/dropdown on the right) → confirm **Run workflow** again. This manually triggers a run right now, without waiting for Monday.
 4. Refresh after a few seconds — a new run will appear. Click into it, then click the **send-weather** job to see live logs.
 5. Read the output carefully:
-   - `Sent to <name> (<email>)` — success, that person should now have a Slack DM.
-   - `Skipped <name> (<email>): <reason>` — something failed for that person specifically; the job still continues to everyone else rather than aborting.
-6. Go check Slack — the DM should appear from the **bot's** name/icon, not your personal account.
+   - `Posted <location> forecast to channel <id>` — success.
+   - Anything prefixed `ERROR:` — the run failed; see the troubleshooting table below.
+6. Go check the Slack channel — the messages should appear from the **bot's** name/icon, not your personal account.
 
 ### Troubleshooting common errors
 
 | Error in logs | What it means | Fix |
 |---|---|---|
 | `could not geocode '<location>'` | The city name (before the comma) didn't match any place at all | Check for typos in the city name |
-| `Slack user lookup failed ... invalid_auth` | The bot token is wrong, expired, or wasn't saved correctly as the secret | Re-copy the token from Slack, update the GitHub secret |
-| `Slack user lookup failed ... users_not_found` | No Slack account in this workspace has that email | Confirm the email against their actual Slack profile |
-| `Slack user lookup failed ... missing_scope` | The `users:read.email` scope wasn't added/installed | Go back to OAuth & Permissions, add the scope, click **Install to Workspace** again to reinstall with the new scope |
-| `could not open DM ... missing_scope` | The `im:write` scope is missing | Same fix as above, for `im:write` |
+| `send failed: invalid_auth` | The bot token is wrong, expired, or wasn't saved correctly as the secret | Re-copy the token from Slack, update the GitHub secret |
+| `send failed: not_in_channel` | The bot isn't a member of the target channel | Invite the bot into the channel (Part 3, step 1) |
+| `send failed: channel_not_found` | The `SLACK_CHANNEL_ID` value is wrong or the bot can't see that channel | Re-copy the channel ID (Part 3, step 2); confirm it's not mistyped |
+| `send failed: missing_scope` | The `chat:write` scope wasn't added/installed | Go back to OAuth & Permissions, add the scope, click **Install to Workspace** again to reinstall with the new scope |
 | Workflow doesn't appear under Actions at all | The yml file isn't at `.github/workflows/weekly-weather.yml` exactly | Check the path — a typo or wrong folder is the usual cause |
 
 ---
@@ -134,25 +131,23 @@ The workflow trigger is:
 
 ```yaml
 schedule:
-  - cron: "0 11 * * 1"
+  - cron: "30 6 * * *"
+    timezone: "America/Toronto"
 ```
 
-Cron fields are `minute hour day-of-month month day-of-week`, always in UTC — GitHub Actions has no timezone setting. `0 11 * * 1` means "at minute 0 of hour 11 UTC, every Monday." 11:00 UTC is 7:00 AM Eastern **during Eastern Daylight Time** (UTC−4, roughly mid-March to early November).
+Cron fields are `minute hour day-of-month month day-of-week`. By default GitHub Actions schedules run in UTC, but the `timezone` field (an IANA timezone name) tells GitHub to interpret the cron string in that local timezone instead — so `30 6 * * *` with `timezone: "America/Toronto"` means "6:30 AM Toronto time, every day," full stop. GitHub automatically shifts the actual UTC trigger time when clocks change between EDT and EST, so there's no manual math and nothing to edit twice a year. (This replaces an earlier version of this file that hardcoded UTC times and needed a manual swap for daylight saving — if you're looking at an older copy, replace it with this one.)
 
-The catch: cron doesn't know about daylight saving. During Eastern Standard Time (UTC−5, roughly early November to mid-March), that same `11 * * 1` fires at **6:00 AM** local instead of 7:00. If exact timing matters to you year-round, swap the cron line twice a year:
+One caveat directly from GitHub's docs on the `timezone` field: during the DST "spring forward" transition, if your scheduled time happens to fall in the hour that gets skipped (e.g. 2:30 AM on the night clocks jump from 2:00 to 3:00), the run advances to the next valid time instead. Not a concern for a 6:30 AM schedule, but worth knowing if you ever change the time to something in the 2–3 AM range.
 
-- EDT (spring/summer): `0 11 * * 1`
-- EST (fall/winter): `0 12 * * 1`
+Separately, GitHub's scheduler can run late — sometimes by quite a bit — during periods of high platform load, especially around the top of the hour. This is documented, expected behavior for free scheduled workflows (see [GitHub's docs on the `schedule` event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)), not a sign anything in this setup is broken. Scheduling at :30 past the hour (rather than on the hour) already reduces the odds of this, but it isn't a hard guarantee. If a run ever looks off-time, check the **Actions** tab and open that specific run — it'll say whether it was triggered by "Scheduled" (GitHub-side delay) or manually, which tells you whether there's anything to actually investigate.
 
-If being off by an hour twice a year doesn't matter, you can leave it as-is indefinitely.
-
-One more real-world note: GitHub's scheduler can run a few minutes late during periods of high platform load — this is documented, expected behavior for free scheduled workflows, not a sign anything is broken.
+Also worth knowing: GitHub automatically disables scheduled workflows after 60 days of zero repository activity — if the daily post ever silently stops, check the **Actions** tab for a "workflow disabled" banner before assuming something else is wrong.
 
 ---
 
 ## Part 6 — Message format & extreme weather warnings
 
-Each person now gets up to two messages per week:
+Each daily run posts up to two messages to the channel:
 
 1. **A warnings message** (only sent if something qualifies) — plain text, e.g.:
    ```
@@ -209,7 +204,7 @@ Note: light/moderate/heavy variants of the same condition (e.g. codes 61, 63, 65
 
 `test_extreme_weather.py` sends a **fabricated** week of extreme conditions (heat, cold, wind, rain, snow, freezing rain, thunderstorm with hail, plus UV) through the exact same `build_warning_message`/`build_forecast_blocks` code the real job uses — no real forecast is fetched, and no thresholds are touched. It's imported straight from `weekly_weather_slack.py`, so what you see is guaranteed to match production formatting.
 
-To use it: add the file to your repo alongside the others, and add `test-extreme-weather.yml` at `.github/workflows/test-extreme-weather.yml` (same rule as the main workflow — GitHub only reads that exact folder). It has no schedule, only a manual trigger — go to **Actions → Test Extreme Weather Message → Run workflow**. It sends to whoever is first in `recipients.json`, prefixed with "[TEST - fabricated data, not a real forecast]" so it's never mistaken for a real alert.
+To use it: add the file to your repo alongside the others, and add `test-extreme-weather.yml` at `.github/workflows/test-extreme-weather.yml` (same rule as the main workflow — GitHub only reads that exact folder). It has no schedule, only a manual trigger — go to **Actions → Test Extreme Weather Message → Run workflow**. It posts to the same channel as the real job, prefixed with "[TEST - fabricated data, not a real forecast]" so it's never mistaken for a real alert.
 
 This is the safer alternative to temporarily lowering real thresholds to force a trigger — that approach works too, but it's easy to forget to change a threshold back afterward, and until you do, the live job could send a false alarm off real (non-extreme) weather.
 
@@ -217,20 +212,19 @@ This is the safer alternative to temporarily lowering real thresholds to force a
 
 ## Part 7 — Ongoing maintenance
 
-- **Adding or removing people:** edit `recipients.json` and commit. Nothing else needs to change.
+- **Changing the site or channel:** see Part 3 — both are set via repository variables (or the constants in the script) with no code redeploy needed for the variable-based approach.
 - **Changing wording, layout, warning thresholds, or icons:** edit `weekly_weather_slack.py` — `build_forecast_blocks` controls the table block, `build_warning_message`/`get_warnings` and the threshold constants control the warnings message, and `WEATHER_ICONS` controls the emoji per WMO code.
 - **Rotating the bot token:** in the Slack app's OAuth & Permissions page, reinstalling the app regenerates the token. Update the `SLACK_BOT_TOKEN` secret in GitHub afterward — the old token stops working immediately once reinstalled.
-- **If someone changes their Slack email:** update their entry in `recipients.json` to match.
-- **Scaling to a larger list:** the script processes recipients one at a time with no artificial delay; Slack's API has generous per-minute rate limits for the methods used here, so this comfortably handles lists of dozens of people. If you eventually have hundreds, a small delay between sends would be a reasonable addition.
 - **Cost:** this is free end to end — GitHub Actions includes free minutes for scheduled workflows (a job this small uses well under a minute per run), and Open-Meteo's API requires no key, account, or paid plan.
+- **This system runs on a schedule, not continuously:** each run recalculates warnings fresh from whatever Open-Meteo returns at that moment. It's not a standing monitor — even at a daily cadence, if conditions shift significantly between runs (e.g. a storm develops mid-afternoon), it won't be caught until the next scheduled run (or a manual trigger). Keep that in mind for anything safety-critical.
 
 ---
 
 ## Quick end-to-end checklist
 
-1. Slack app created, bot token scopes added (`chat:write`, `im:write`, `users:read.email`), app installed, token copied.
-2. Private GitHub repo created with all four files, workflow file at `.github/workflows/weekly-weather.yml`.
-3. `SLACK_BOT_TOKEN` secret added under repo Settings → Secrets and variables → Actions.
-4. `recipients.json` filled in with real names, emails, and locations.
-5. Manual **Run workflow** test completed, logs show `Sent to ...` for each person, DM confirmed in Slack from the bot's identity.
-6. Schedule left as-is (or adjusted for DST per Part 5) — the job now runs automatically every Monday.
+1. Slack app created, `chat:write` scope added, app installed, token copied.
+2. Bot invited into the target Slack channel; channel ID copied.
+3. Private (or public) GitHub repo created with the script, requirements, and workflow file(s) at their exact paths.
+4. `SLACK_BOT_TOKEN` secret added, `SLACK_CHANNEL_ID` (and optionally `SITE_LOCATION`) variables added under repo Settings → Secrets and variables → Actions.
+5. Manual **Run workflow** test completed, log shows `Posted ... forecast to channel ...`, message confirmed in the channel from the bot's identity.
+6. Schedule left as-is (or adjusted for DST per Part 5) — the job now runs automatically every day.
